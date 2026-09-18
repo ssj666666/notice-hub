@@ -1,0 +1,32 @@
+# ---- 虚拟环境 ----
+.venv/
+venv/
+env/
+
+# ---- 运行数据（含抓取内容和你添加的自定义源，不要提交）----
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# ---- 你的个人配置（里面会填 appid / api key，绝对不要提交）----
+config.yaml
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- 日志 ----
+*.log
+logs/

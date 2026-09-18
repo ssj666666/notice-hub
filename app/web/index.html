@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f6feb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="通知中枢">
+<title>通知中枢</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">通</div>
+    <div class="brand-text">
+      <h1>通知中枢</h1>
+      <p id="subtitle">正在加载…</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <button id="btn-refresh" class="icon-btn" title="重新抓取">⟳</button>
+    <button id="btn-menu" class="icon-btn" title="更多">⋯</button>
+  </div>
+</header>
+
+<section class="stats" id="stats"></section>
+
+<nav class="filters" id="filters">
+  <button class="chip active" data-view="all">全部通知</button>
+  <button class="chip" data-view="key">只看重点</button>
+  <button class="chip" data-view="unread">未读</button>
+  <button class="chip" data-view="starred">星标</button>
+  <span class="spacer"></span>
+  <button class="chip ghost" id="btn-readall">全部已读</button>
+</nav>
+
+<div class="searchbar">
+  <input id="search" type="search" placeholder="搜索标题或正文…" autocomplete="off">
+</div>
+
+<nav class="cats" id="cats"></nav>
+
+<div class="toolbar">
+  <button class="mini" id="btn-sort" title="切换排序方式">⇅ 按重要度</button>
+  <button class="mini" id="btn-stale" title="显示/隐藏过期通知">过期通知：隐藏</button>
+  <span class="toolbar-hint" id="toolbar-hint"></span>
+</div>
+
+<main id="list" class="list"></main>
+
+<div id="toast" class="toast"></div>
+
+<!-- 详情抽屉 -->
+<div id="sheet" class="sheet-mask hidden">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-body" id="sheet-body"></div>
+    <div class="sheet-actions">
+      <button id="sheet-open" class="btn primary">打开原文</button>
+      <button id="sheet-star" class="btn">星标</button>
+      <button id="sheet-read" class="btn">标记已读</button>
+    </div>
+  </div>
+</div>
+
+<!-- 菜单 -->
+<div id="menu" class="sheet-mask hidden">
+  <div class="sheet compact">
+    <div class="sheet-handle"></div>
+    <div class="sheet-body">
+      <h3>操作</h3>
+      <button class="menu-item" id="menu-add">➕ 添加网站</button>
+      <button class="menu-item" id="menu-sources">查看各源抓取状态</button>
+      <button class="menu-item" id="menu-run">立即抓取一次</button>
+      <button class="menu-item" id="menu-testpush">发送通道测试消息</button>
+      <button class="menu-item" id="menu-runs">查看运行记录</button>
+      <button class="menu-item" id="menu-close">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 源状态面板 -->
+<div id="sources-panel" class="sheet-mask hidden">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-body" id="sources-body"></div>
+    <div class="sheet-actions">
+      <button class="btn primary" id="sources-close">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 添加网站面板 -->
+<div id="add-panel" class="sheet-mask hidden">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-body" id="add-body">
+      <h2>添加网站</h2>
+      <p class="hint">把网址粘进来，我先探测它该怎么抓，确认后再加入。</p>
+      <div class="add-row">
+        <input id="add-url" type="url" placeholder="https://example.pku.edu.cn/tzgg.htm"
+               autocomplete="off" spellcheck="false">
+        <button class="btn primary" id="add-probe">探测</button>
+      </div>
+      <div id="add-result"></div>
+      <div id="add-custom-list"></div>
+    </div>
+    <div class="sheet-actions">
+      <button class="btn" id="add-close">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

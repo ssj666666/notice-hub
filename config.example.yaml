@@ -1,0 +1,497 @@
+# ============================================================
+#  通知中枢 notice-hub  ·  配置模板
+#  第一次运行会自动复制成 config.yaml，之后只改 config.yaml
+# ============================================================
+
+server:
+  host: 0.0.0.0          # 0.0.0.0 = 允许手机/其他设备访问
+  port: 8787
+  open_browser: true     # 启动时自动打开看板
+
+# 每隔多少分钟抓取一次
+poll_interval_minutes: 10
+
+# 日志级别: DEBUG / INFO / WARNING
+log_level: INFO
+
+
+# ============================================================
+#  采集源
+# ============================================================
+
+sources:
+
+  # ---------- RSS（公众号文章、任意网站订阅） ----------
+  # ⚠️ 你要的 12 个北大公众号，Wechat2RSS 免费库里一个都没有（实测 395 个号零命中）。
+  #    唯一可靠的路线是 Wechat2RSS 私有部署（15元/月 或 150元/年，支持任意公众号，
+  #    平均 6 小时延迟），见 README「公众号怎么办」一节。
+  #    部署好之后，把每个号的 feed 地址按下面格式填进来即可。
+  rss: []
+    # - name: 北京大学百家讲坛
+    #   url: http://你的私有部署地址/feed/xxxxxxxx.xml
+    #   enabled: true
+    #   weight: 1.2
+    # - name: 北京大学就业指导中心
+    #   url: http://你的私有部署地址/feed/xxxxxxxx.xml
+    #   enabled: true
+    #   weight: 1.3
+
+  # ---------- 邮箱（校内邮箱，最可靠的源头） ----------
+  imap: []
+    # - name: 校内邮箱
+    #   enabled: true
+    #   host: imap.pku.edu.cn
+    #   port: 993
+    #   ssl: true
+    #   username: 你的学号@pku.edu.cn
+    #   password: 邮箱授权码        # 多数邮箱要单独申请"授权码"，不是登录密码
+    #   mailbox: INBOX
+    #   since_days: 3              # 只读最近几天的未读
+    #   weight: 1.5
+
+  # ---------- JSON 接口 ----------
+  # 给那些"列表由 JS 异步加载、静态 HTML 抓不到"的站用。
+  # 很多学校站是 Yii/Spring 框架：同一个 URL 带 X-Requested-With 头请求会返回 JSON。
+  api:
+    # 北大讲座网 —— 「北京大学百家讲坛」「北大讲坛online」最完整的替代。
+    # 静态页面抓不到（列表是 JS 渲染的），但带 XHR 头请求同一个 URL 会返回 JSON。
+    # 实测共 941 场讲座，含主讲人、地点、开讲时间。
+    - name: 北大讲座网
+      enabled: true
+      url: https://lecture.pku.edu.cn/index.php
+      params:
+        r: lecturepre/index
+        per-page: "60"
+        order: "addtime desc"
+        "search[status][eq]": "1"
+      headers:
+        X-Requested-With: XMLHttpRequest
+      items_path: data
+      title_field: subject
+      url_template: "https://lecture.pku.edu.cn/index.php?r=lecturepre/view&id={id}"
+      date_field: addtime            # 发布时间，用来判断"是不是新发的"
+      # 有效期字段：讲座即使一个月前发布，只要还没开讲就不算过期
+      expire_field: begintime
+      # 整站都是讲座，规则分类拿不准时用这个兜底
+      default_category: 讲座讲坛
+      content_fields: [begintime, speaker, place, unit, content]
+      field_labels:
+        begintime: 开讲时间
+        speaker: 主讲人
+        place: 地点
+        unit: 主办单位
+        content: 简介
+      interval_minutes: 10
+      limit: 60
+      weight: 1.5
+
+    # ===== 北大就业指导服务中心（scc.pku.edu.cn）=====
+    # 不是 SPA，是服务端渲染 + 同域 JSON 接口。实测零鉴权：
+    # 不需要 token / cookie / X-Requested-With，裸请求就返回 JSON。
+    # 注意：它的 /f/xxx/show 这类 HTML 详情页会 302 跳登录，
+    #       但对应的 ajax_* 接口是公开的，所以只走接口。
+    - name: 北大就业·通知公告
+      enabled: true
+      url: https://scc.pku.edu.cn/f/newsCenter/ajax_thisNewsAndSiblingCategoryList
+      method: POST
+      form:
+        categoryId: "13"          # 13=通知公告，12=新闻热点，改这个即可换栏目
+        pageNo: "1"
+        pageSize: "50"
+      items_path: object.newsPage.list
+      title_field: title
+      url_field: url
+      url_base: https://scc.pku.edu.cn
+      date_field: releaseDate
+      default_category: 就业实习
+      content_fields: [description, publisher, category.name]
+      field_labels:
+        description: 摘要
+        publisher: 发布
+        category.name: 栏目
+      interval_minutes: 60
+      limit: 50
+      weight: 1.4
+
+    - name: 北大就业·招聘信息
+      enabled: true
+      url: https://scc.pku.edu.cn/f/recruitmentinfo/ajax_frontRecruitinfo
+      method: POST
+      form:
+        pageNo: "1"
+        pageSize: "50"
+        positionType: "1"         # 1=招聘，2=实习
+        city: ""
+        title: ""
+      items_path: object.list
+      title_field: title
+      url_field: url
+      url_base: https://scc.pku.edu.cn
+      date_field: startTime
+      default_category: 就业实习
+      content_fields: [corporationName, positionNum, education, majorName, endTime]
+      field_labels:
+        corporationName: 单位
+        positionNum: 招聘人数
+        education: 学历要求
+        majorName: 专业要求
+        endTime: 截止时间
+      interval_minutes: 60
+      limit: 50
+      weight: 1.4
+
+    - name: 北大就业·宣讲会
+      enabled: true
+      url: https://scc.pku.edu.cn/f/recruitmentFair/ajax_frontRecruitfair
+      method: GET
+      params:
+        pageNo: "1"
+        pageSize: "50"
+        fairType: "1"
+      items_path: object.list
+      title_field: title
+      url_field: url
+      url_base: https://scc.pku.edu.cn
+      date_field: startTime
+      expire_field: endTime
+      default_category: 就业实习
+      content_fields: [place, corporationinfo.name, holdTimeExport, endTime]
+      field_labels:
+        place: 地点
+        corporationinfo.name: 单位
+        holdTimeExport: 举办时间
+        endTime: 结束时间
+      interval_minutes: 60
+      limit: 50
+      weight: 1.5
+
+    # ===== 医学部就业指导中心（scdc.bjmu.edu.cn）=====
+    # ⚠️ 两个坑：
+    #   1) 必须带 X-Requested-With: XMLHttpRequest，否则返回的是完整 HTML 页面而不是 JSON
+    #      （和讲座网同一个套路，实测确认）
+    #   2) 这站极慢：单次 21~50 秒，超 nginx 60s 上限会吐 504，
+    #      所以 timeout 设 120 秒，抓取间隔也放长，别把人家站打挂
+    # 返回头写 text/html 但 body 是 JSON，采集器已做容错解析。
+    - name: 医学部就业·就业信息
+      enabled: true
+      url: https://scdc.bjmu.edu.cn/portal/home/recruitment-list.html
+      params:
+        menuId: "30"
+      method: POST
+      headers:
+        X-Requested-With: XMLHttpRequest
+      form:
+        pageIndex: "0"
+        pageSize: "30"
+        currentPage: "1"
+      timeout_seconds: 120
+      items_path: data
+      title_field: title
+      url_template: "https://scdc.bjmu.edu.cn/portal/home/recruitment-details.html?id={id}&menuId=30"
+      date_field: publishTime
+      default_category: 就业实习
+      content_fields: [enterpriseName, content.value, applyTime, dictRecruitmentTypeValue]
+      field_labels:
+        enterpriseName: 单位
+        content.value: 简介
+        applyTime: 申请时间
+        dictRecruitmentTypeValue: 类型
+      interval_minutes: 180
+      limit: 30
+      weight: 1.4
+
+    # 新闻公告栏目：最新一条停在 2022-09-30，基本是僵尸栏目。
+    # 仍然接上（这样"源状态"面板会如实显示它停更），但间隔放到 6 小时。
+    - name: 医学部就业·新闻公告
+      enabled: true
+      url: https://scdc.bjmu.edu.cn/portal/home/bulletinInfo-list.html
+      params:
+        baseBulletinInfoVo.menuId: "10"
+      method: POST
+      headers:
+        X-Requested-With: XMLHttpRequest
+      form:
+        pageIndex: "0"
+        pageSize: "20"
+        currentPage: "1"
+      timeout_seconds: 120
+      items_path: data
+      title_field: title.value
+      url_template: "https://scdc.bjmu.edu.cn/portal/home/bulletinInfo-details.html?id={id}&menuId=10"
+      date_field: createTime.value
+      default_category: 就业实习
+      content_fields: [content.value, publisher.value, source.value]
+      field_labels:
+        content.value: 内容
+        publisher.value: 发布
+        source.value: 来源
+      interval_minutes: 360
+      limit: 20
+      weight: 1.2
+
+  # ---------- 网页监控 ----------
+  # 两种模式：
+  #   模式A 结构化：填 item_selector（+可选 title/link/date_selector）
+  #   模式B 自动识别：填 auto_detect: true，程序自己找列表结构
+  #   模式C 变化检测：都不填，只挑页面新出现的文字行
+  #
+  # 下面这些源都已经实测过（2026-09），日期字段会自动从每条记录里抽取。
+  web:
+    # ===== 教务部 6 个分类（原来只配了 type=4，漏掉了四六级和推免）=====
+    - name: 教务部·选课与课程
+      enabled: true
+      url: http://www.dean.pku.edu.cn/web/notice.php?type=4
+      item_selector: "div.notice_item"
+      title_selector: "a"
+      link_selector: "a"
+      weight: 1.6
+    - name: 教务部·四六级与大学英语
+      enabled: true
+      url: http://www.dean.pku.edu.cn/web/notice.php?type=6
+      item_selector: "div.notice_item"
+      title_selector: "a"
+      link_selector: "a"
+      weight: 1.6
+    - name: 教务部·推免
+      enabled: true
+      url: http://www.dean.pku.edu.cn/web/notice.php?type=7
+      item_selector: "div.notice_item"
+      title_selector: "a"
+      link_selector: "a"
+      weight: 1.5
+    - name: 教务部·转专业与招生
+      enabled: true
+      url: http://www.dean.pku.edu.cn/web/notice.php?type=3
+      item_selector: "div.notice_item"
+      title_selector: "a"
+      link_selector: "a"
+      weight: 1.4
+    - name: 教务部·本科生科研
+      enabled: true
+      url: http://www.dean.pku.edu.cn/web/notice.php?type=5
+      item_selector: "div.notice_item"
+      title_selector: "a"
+      link_selector: "a"
+      weight: 1.4
+    - name: 教务部·双专业与辅修
+      enabled: true
+      url: http://www.dean.pku.edu.cn/web/notice.php?type=2
+      item_selector: "div.notice_item"
+      title_selector: "a"
+      link_selector: "a"
+      weight: 1.4
+
+    # ===== 讲座 / 讲坛（替代「北京大学百家讲坛」「北大讲坛online」）=====
+    # 讲座类信息时效性最强，interval_minutes 设成 5 分钟，尽量当天就同步到。
+    # 注意：能不能「当日」最终取决于源页面本身什么时候更新，程序只能尽快发现。
+    - name: 北大新闻网·信息预告
+      enabled: true
+      url: http://news.pku.edu.cn/wyyd/xxyg/index.htm
+      item_selector: "li.imgHover.noImg"
+      title_selector: "h3 a"
+      link_selector: "h3 a"
+      date_selector: "span.item-date"
+      interval_minutes: 5
+      weight: 1.3
+    - name: 医学部·讲座信息
+      enabled: true
+      url: https://www.bjmu.edu.cn/jzxx/index.htm
+      item_selector: "ul.list07 li"
+      title_selector: "p"
+      link_selector: "a"
+      interval_minutes: 5
+      weight: 1.3
+
+    # ===== 医学部（替代「北京大学医学部」「北京大学医学部教务处」）=====
+    - name: 医学部·通知公告
+      enabled: true
+      url: https://www.bjmu.edu.cn/tzgg/index.htm
+      item_selector: "li.noImg"
+      title_selector: "a"
+      link_selector: "a"
+      weight: 1.5
+    - name: 医学部·校园信息
+      enabled: true
+      url: https://www.bjmu.edu.cn/xyxx/index.htm
+      auto_detect: true
+      weight: 1.3
+
+    # ===== 体育（替代「北大体育」）=====
+    # 这个站用 auto_detect 识别不出来（li 没有 class），
+    # 但每条都带 id="line_uXX_N"，用它精确定位。
+    - name: 北大体育教研部
+      enabled: true
+      url: https://pe.pku.edu.cn/xwzx/ttxw.htm
+      item_selector: "li[id^=line_u]"
+      title_selector: "a"
+      link_selector: "a"
+      interval_minutes: 30
+      weight: 1.3
+    # 通知公告：招新、招聘、场馆岗位、推免等都在这里
+    # （另一个「学生体育社团和普通生代表队」页是介绍性内容，没有通知列表，接不了）
+    - name: 北大体育·通知公告
+      enabled: true
+      url: https://pe.pku.edu.cn/xwzx/tzgg.htm
+      item_selector: "li[id^=line_u]"
+      title_selector: "a"
+      link_selector: "a"
+      interval_minutes: 15
+      weight: 1.5
+
+    # ===== 校团委（替代「北京大学学生会」「北京大学团委」）=====
+    # 实测：这个栏目是静态 HTML，能抓到（另一个「精品讲座」栏目是空的）
+    - name: 北大团委·重要通知
+      enabled: true
+      url: https://youth.pku.edu.cn/tzgg/zytz/index.htm
+      item_selector: "li.list-type"
+      title_selector: "a"
+      link_selector: "a"
+      interval_minutes: 15
+      weight: 1.4
+
+    # ===== 北医团委 / 北医教育处（补上医学部这两块）=====
+    # 注意：这两个栏目必须带 index.htm，只写目录名返回的是空壳页面。
+    - name: 北医团委·通知公告
+      enabled: true
+      url: https://bytw.bjmu.edu.cn/tzgg/index.htm
+      item_selector: "ul.t2-list01 li"
+      title_selector: "a"
+      link_selector: "a"
+      interval_minutes: 30
+      weight: 1.4
+    - name: 北医教育处·重要通知
+      enabled: true
+      url: https://jiaoyuchu.bjmu.edu.cn/tzgggb/zzytz/index.htm
+      item_selector: "div.list30 ul li"
+      title_selector: "a"
+      link_selector: "a"
+      interval_minutes: 30
+      weight: 1.5
+    - name: 北医教育处·综合信息
+      enabled: true
+      url: https://jiaoyuchu.bjmu.edu.cn/tzgggb/jctz/index.htm
+      item_selector: "div.list30 ul li"
+      title_selector: "a"
+      link_selector: "a"
+      interval_minutes: 30
+      weight: 1.3
+
+    # 想再加网页：优先试 auto_detect: true；不行就手工填 item_selector。
+    # 用 tools/detect_selector.py <网址> 可以自动打印可用的选择器。
+    # 已知不可用：portal.pku.edu.cn（JS 渲染，抓不到内容）
+
+
+# ============================================================
+#  规则预筛：第一道漏斗，几乎零成本地砍掉大部分噪音
+# ============================================================
+
+filter:
+  # 命中任一 → 直接判为 5 分（最高），并跳过下面的 drop 规则
+  l3_keywords:
+    - 选课
+    - 补退选
+    - 退课
+    - 报名截止
+    - 截止日期
+    - 缴费
+    - 报到
+    - 注册
+    - 体测
+    - 军训
+    - 四六级
+    - 成绩
+    - 学籍
+    - 缓考
+    - 重修
+    - 宿舍
+    - 停电
+    - 停水
+    - 退学
+    - 警告处分
+
+  # 命中任一 → 判为 4 分
+  l2_keywords:
+    - 考试
+    - 奖学金
+    - 助学金
+    - 评优
+    - 竞赛
+    - 报名
+    - 交换
+    - 实习
+    - 培养方案
+    - 学分
+
+  # 命中任一 → 直接丢弃（除非同时命中 l3）
+  drop_keywords:
+    - 活动回顾
+    - 圆满结束
+    - 精彩瞬间
+    - 顺利举办
+    - 胜利召开
+    - 点赞
+    - 转发
+    - 招聘会预告
+
+  # 正文里出现"截止/报名时间"且距今 <= N 天 → 重要度 +1
+  deadline_urgent_days: 3
+
+  # ★ 日期衰减：发布日期超过 N 天的，重要度一律压到 2 分以下。
+  #   4 月的「停电停水通知」命中关键词也不该显示成 5 分 —— 它对你今天毫无价值。
+  #   例外：正文里提到未来日期（"9月25日前完成"）的不降级。
+  importance_decay_days: 7
+
+  # ★ 过期闸门：发布日期超过 N 天的，标记为「已过期」：看板默认隐藏、永不推送。
+  #   注意：N 太大会让"本身就不常更新的站"整站看不见（团委、讲座网就是这样），
+  #   所以这里放宽到 60 天。想看更旧的，点看板上的「过期通知：显示」。
+  visible_days: 60
+
+  # 正文里提到未来 N 天内的日期 → 认为还没过期，不降级也不隐藏
+  upcoming_days: 30
+
+
+# ============================================================
+#  LLM 精判 + 抽取：第二道漏斗
+#  只对通过预筛、且重要度 >= llm.min_importance_for_llm 的文章调用
+# ============================================================
+
+llm:
+  enabled: false                 # 填好 api_key 后改成 true
+  provider: deepseek
+  base_url: https://api.deepseek.com
+  api_key: ""                    # 建议用环境变量 NOTICE_HUB_LLM_KEY，别写这里
+  model: deepseek-chat
+  min_importance_for_llm: 4      # 4 分及以上才送 LLM（省钱的关键）
+  max_calls_per_run: 20          # 单次最多调用几次，防跑飞
+  timeout_seconds: 60
+  concurrency: 3
+
+
+# ============================================================
+#  推送
+# ============================================================
+
+notify:
+  # 重要度达到多少才推送（5=只推最致命，4=推荐）
+  min_importance: 4
+
+  # 每天最多即时推送几条，超出的攒成日报
+  instant_push_max_per_day: 8
+
+  wechat:
+    enabled: false
+    appid: ""                    # 微信测试号的 appID
+    appsecret: ""                # 微信测试号的 appsecret
+    openid: ""                   # 你的 openid（测试号后台"用户列表"里）
+    template_id: ""              # 测试模板 ID
+    # 想用环境变量就留空上面几项，改用：
+    #   NOTICE_HUB_WX_APPID / NOTICE_HUB_WX_SECRET
+    #   NOTICE_HUB_WX_OPENID / NOTICE_HUB_WX_TEMPLATE
+
+  # 什么级别的消息会真的发出去
+  quiet_hours:
+    enabled: false
+    start: "23:30"
+    end: "06:30"
+    # 静默时段内仍然允许推送的最低重要度
+    allow_min_importance: 5

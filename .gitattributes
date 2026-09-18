@@ -1,0 +1,13 @@
+# 统一换行符，避免 Windows/Linux 协作时整个文件显示成改动
+* text=auto eol=lf
+
+# Windows 脚本必须保留 CRLF，否则 cmd/wscript 可能报错
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.vbs text eol=crlf
+*.ps1 text eol=crlf
+
+# 二进制文件不要做换行转换
+*.png binary
+*.ico binary
+*.jpg binary
