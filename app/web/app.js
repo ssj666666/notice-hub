@@ -152,8 +152,10 @@ function renderToolbar() {
 
   const s = state.stats || {};
   const bits = [];
-  if (s.published_today) bits.push(`今日发布 ${s.published_today} 条`);
-  if (s.stale) bits.push(`已隐藏过期 ${s.stale} 条`);
+  if (s.retention_days) bits.push(`只留 ${s.retention_days} 天内`);
+  if (s.published_today) bits.push(`今日发布 ${s.published_today}`);
+  if (s.starred) bits.push(`★ 星标 ${s.starred} 条（不会被清）`);
+  if (s.oldest) bits.push(`最早 ${s.oldest}`);
   $('#toolbar-hint').textContent = bits.join(' · ');
 }
 
@@ -724,6 +726,19 @@ function bind() {
       await api('/api/custom-sources?name=' + encodeURIComponent(name), { method: 'DELETE' });
       toast('已删除 ' + name);
       await loadCustomList();
+      await refreshAll();
+    } catch (e) {
+      toast('失败：' + e.message, 5000);
+    }
+  });
+  $('#menu-purge').addEventListener('click', async () => {
+    $('#menu').classList.add('hidden');
+    const days = (state.stats && state.stats.retention_days) || 14;
+    if (!confirm(`清理超过 ${days} 天的旧通知？\n\n★ 你标了星标的会保留。`)) return;
+    toast('正在清理…', 5000);
+    try {
+      const r = await api('/api/purge', { method: 'POST' });
+      toast(`已清理 ${r.removed} 条旧通知`, 4000);
       await refreshAll();
     } catch (e) {
       toast('失败：' + e.message, 5000);

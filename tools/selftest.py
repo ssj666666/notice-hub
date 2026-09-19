@@ -425,6 +425,133 @@ def test_detect_selectors() -> None:
     check("空页面返回空", detect_selectors("") == [])
 
 
+def test_retention() -> None:
+    """保留期：库里超期被清；星标永久保留。"""
+    print("\n[0h] 保留期与自动清理")
+    import tempfile
+    from pathlib import Path as _P
+
+    from app.db import Database
+
+    tmp = _P(tempfile.mkdtemp(prefix="noticehub-ret-"))
+    db = Database(tmp / "ret.db")
+    today = datetime.now(CST).date()
+
+    def add(title: str, days_ago: int, starred: bool = False) -> int:
+        item_id = db.insert_item({
+            "uid": f"u-{title}", "source": "t", "source_type": "test",
+            "title": title, "url": "", "content": "",
+            "published_at": (today - timedelta(days=days_ago)).isoformat(),
+        })
+        if starred:
+            db.set_flag(item_id, "starred", True)
+        return item_id
+
+    add("1 天前", 1)
+    add("7 天前", 7)
+    add("13 天前", 13)
+    add("20 天前", 20)
+    add("60 天前", 60)
+    add("100 天前·星标", 100, starred=True)
+    add("300 天前·星标", 300, starred=True)
+    check("清理前共 7 条", len(db.all_items()) == 7, str(len(db.all_items())))
+
+    removed = db.purge_old(14)
+    check("清理掉 2 条超期未星标", removed == 2, f"实际 {removed}")
+
+    left = {r["title"] for r in db.all_items()}
+    check("保留 1/7/13 天内的", {"1 天前", "7 天前", "13 天前"} <= left, str(left))
+    check("删除 20 天前的", "20 天前" not in left, str(left))
+    check("删除 60 天前的", "60 天前" not in left, str(left))
+    check("星标的 100 天前保留", "100 天前·星标" in left, str(left))
+    check("星标的 300 天前保留", "300 天前·星标" in left, str(left))
+    check("星标数正确", db.starred_count() == 2, str(db.starred_count()))
+
+    add("正好 14 天", 14)
+    before = len(db.all_items())
+    db.purge_old(14)
+    check("正好 14 天的保留", len(db.all_items()) == before,
+          f"{before} -> {len(db.all_items())}")
+
+    n_before = len(db.all_items())
+    check("days<0 时不清理", db.purge_old(-1) == 0 and len(db.all_items()) == n_before)
+    db.close()
+
+
+def test_ingest_gate() -> None:
+    """录入闸门：超过保留期的条目压根不该进库（未到期的活动除外）。"""
+    print("\n[0i] 录入闸门（超期不入库）")
+    import tempfile
+    from pathlib import Path as _P
+
+    from app.collectors import RawItem
+    from app.db import Database
+    from app.pipeline import Pipeline
+
+    tmp = _P(tempfile.mkdtemp(prefix="noticehub-gate-"))
+    db = Database(tmp / "gate.db")
+    cfg = _deep_merge(DEFAULTS, {
+        "sources": {"web": [{"name": "假源", "enabled": True,
+                             "url": "http://127.0.0.1:1/x",
+                             "item_selector": "li"}]},
+        "filter": {"retention_days": 14, "visible_days": 14,
+                   "importance_decay_days": 7, "l3_keywords": ["选课"],
+                   "l2_keywords": [], "drop_keywords": [],
+                   "deadline_urgent_days": 3, "upcoming_days": 30},
+    })
+    pipeline = Pipeline(cfg, db)
+    today = datetime.now(CST).date()
+
+    def raw(title: str, days_ago: int, expires: str = "") -> RawItem:
+        return RawItem(source="假源", source_type="web", title=title,
+                       published_at=(today - timedelta(days=days_ago)).isoformat(),
+                       expires_at=expires)
+
+    fresh = pipeline._store([
+        raw("选课通知·新", 1),
+        raw("选课通知·13天", 13),
+        raw("选课通知·20天", 20),
+        raw("讲座·30天前发布但下周开讲", 30,
+            expires=(today + timedelta(days=5)).isoformat()),
+    ])
+    titles = {r["title"] for r in db.all_items()}
+    check("13 天内的入库了",
+          "选课通知·新" in titles and "选课通知·13天" in titles, str(titles))
+    check("20 天前的没入库", "选课通知·20天" not in titles, str(titles))
+    check("未到期的活动虽早发布仍入库",
+          "讲座·30天前发布但下周开讲" in titles, str(titles))
+    check("_store 返回值与实际入库一致", len(fresh) == 3, str(len(fresh)))
+    db.close()
+
+
+def test_future_year_inference() -> None:
+    """回归：无年份日期要相对「发布日期」推年份，不能一律套当前年。
+
+    否则去年 9 月的旧预告里写「9月26日」，会被误判成今年快到了，
+    导致一年前的旧通知被留在库里（实测踩过这个坑）。
+    """
+    print("\n[0j] 未来日期的年份推断")
+    from app.analyze import _has_future_date
+
+    today = datetime.now(CST).date()
+    last_year = (today - timedelta(days=360)).isoformat()
+    soon = today + timedelta(days=7)
+    text = f"沙龙预告 时间：{soon.month}月{soon.day}日 14:00"
+
+    got = _has_future_date(text, 30, last_year)
+    check("去年发布的旧预告 -> 不算未到期", got == "", f"实际 {got!r}")
+
+    got = _has_future_date(text, 30, today.isoformat())
+    check("今天发布的同文 -> 算未到期",
+          got == soon.isoformat(), f"实际 {got!r}")
+
+    # 10 天前发布、截止日在 7 天后 —— 应该算未到期（确实还没截止）
+    ten_ago = (today - timedelta(days=10)).isoformat()
+    got = _has_future_date(text, 30, ten_ago)
+    check("10 天前发布、7 天后截止 -> 算未到期",
+          got == soon.isoformat(), f"实际 {got!r}")
+
+
 def tag_corner(soup, tag):
     return soup
 
@@ -495,6 +622,9 @@ async def main() -> int:
     test_expiry_field()
     test_api_collector()
     test_detect_selectors()
+    test_retention()
+    test_ingest_gate()
+    test_future_year_inference()
     test_categories()
     test_prescreen()
     test_message()

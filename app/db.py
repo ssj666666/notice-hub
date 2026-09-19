@@ -254,6 +254,39 @@ class Database:
         rows = self._query("SELECT * FROM items WHERE id=?", (item_id,))
         return dict(rows[0]) if rows else None
 
+    def purge_old(self, days: int) -> int:
+        """清理超过 N 天的条目，**星标的一律保留**。
+
+        年龄基准：优先用发布日期，没有日期就退回抓取日期
+        （抓取日期是 ISO 带时间的，取前 10 位当日期比较）。
+        返回删掉的条数。
+        """
+        if days is None or days < 0:
+            return 0
+        cutoff = (datetime.now(CST).date() - timedelta(days=int(days))).isoformat()
+        with self._lock:
+            cur = self._conn.execute(
+                """DELETE FROM items
+                   WHERE starred = 0
+                     AND COALESCE(NULLIF(substr(published_at,1,10),''),
+                                  substr(fetched_at,1,10)) < ?""",
+                (cutoff,),
+            )
+            self._conn.commit()
+            return cur.rowcount or 0
+
+    def starred_count(self) -> int:
+        rows = self._query("SELECT COUNT(*) AS n FROM items WHERE starred=1")
+        return int(rows[0]["n"]) if rows else 0
+
+    def oldest_item(self) -> dict | None:
+        rows = self._query(
+            """SELECT id, title, published_at, fetched_at, starred FROM items
+               ORDER BY COALESCE(NULLIF(substr(published_at,1,10),''),
+                                 substr(fetched_at,1,10)) ASC LIMIT 1"""
+        )
+        return dict(rows[0]) if rows else None
+
     def update_verdict(self, item_id: int, importance: int, category: str,
                        analysis: str, dropped: bool, is_stale: bool,
                        campus: str = "") -> None:

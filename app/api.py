@@ -29,7 +29,13 @@ def create_app(cfg: dict) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # 启动时先按当前配置重算一遍：改了关键词或日期阈值不用清库
+        # 启动时先清一次旧条目、再按当前配置重算一遍
+        try:
+            removed = pipeline.purge()
+            if removed:
+                log.info("启动清理：删除 %d 条超过保留期的旧条目", removed)
+        except Exception as exc:
+            log.warning("启动清理失败: %s", exc)
         try:
             pipeline.recompute_all()
         except Exception as exc:  # 重算失败不该拦住服务
@@ -39,6 +45,8 @@ def create_app(cfg: dict) -> FastAPI:
         minutes = max(1, int(cfg.get("poll_interval_minutes", 10)))
         scheduler.add_job(pipeline.run_once, "interval", minutes=minutes,
                           id="poll", max_instances=1, coalesce=True)
+        # 每天凌晨 4 点清一次库（run_once 里其实每轮也会清，这里是兜底）
+        scheduler.add_job(pipeline.purge, "cron", hour=4, minute=0, id="purge")
         scheduler.start()
         log.info("调度器已启动，每 %d 分钟抓取一次", minutes)
         # 启动 3 秒后先跑一轮，让看板马上有东西
@@ -144,6 +152,12 @@ def create_app(cfg: dict) -> FastAPI:
         ]
         data["llm_enabled"] = llm_ready(cfg)
         data["wechat_enabled"] = wechat_ready(cfg)
+        # 保留策略：超过这个天数的会被清掉（星标除外）
+        data["retention_days"] = int(cfg["filter"].get("retention_days", 14))
+        data["starred"] = db.starred_count()
+        oldest = db.oldest_item()
+        data["oldest"] = (oldest or {}).get("published_at") or \
+                         ((oldest or {}).get("fetched_at") or "")[:10]
         return data
 
     @app.get("/api/runs")
@@ -279,6 +293,14 @@ def create_app(cfg: dict) -> FastAPI:
     @app.post("/api/fetch-source")
     async def fetch_source(payload: dict = Body(...)):
         return await pipeline.fetch_source(str(payload.get("name", "")))
+
+    @app.post("/api/purge")
+    def purge_now():
+        """手动清理超过保留期的条目（星标保留）。"""
+        removed = pipeline.purge()
+        return {"ok": True, "removed": removed,
+                "retention_days": int(cfg["filter"].get("retention_days", 14)),
+                "stats": db.stats()}
 
     @app.post("/api/recompute")
     def recompute():

@@ -140,6 +140,8 @@ class Pipeline:
         notes: list[str] = []
         llm_calls = 0
         try:
+            # 每轮开始时先清一次库（只删超过保留期且未星标的）
+            purged = self.purge()
             collected = await self._collect(force=force)
             new_items = self._store(collected)
             llm_calls = await self._analyze(new_items)
@@ -148,7 +150,7 @@ class Pipeline:
                                llm_calls, "; ".join(notes))
             summary = {
                 "collected": len(collected), "new": len(new_items),
-                "pushed": pushed, "llm_calls": llm_calls,
+                "pushed": pushed, "llm_calls": llm_calls, "purged": purged,
             }
             log.info("一轮完成: %s", summary)
             return summary
@@ -239,8 +241,9 @@ class Pipeline:
 
         fresh: list[tuple[int, object]] = []
         visible_days = int(self.cfg["filter"].get("visible_days", 30))
+        retention_days = int(self.cfg["filter"].get("retention_days", 14))
         decay_days = int(self.cfg["filter"].get("importance_decay_days", 7))
-        stale_count = decay_count = 0
+        stale_count = decay_count = skipped_old = 0
         for raw in collected:
             verdict = prescreen(raw, self.cfg, weights.get(raw.source, raw.weight))
 
@@ -254,10 +257,24 @@ class Pipeline:
             #           ② 正文里提到未来 N 天内的日期（"9月25日前完成"）
             age = verdict.get("age_days")
             still_valid = _is_future(raw.expires_at) or bool(verdict.get("upcoming"))
+            # 「有未来日期」这个例外本身也要有年龄上限：
+            # 一条 75 天前的旧通知里随便提个未来日期，不该因此永久留在库里
+            exempt_max_age = int(self.cfg["filter"].get(
+                "stale_exempt_max_age_days", 45))
+            if age is not None and exempt_max_age >= 0 and age > exempt_max_age:
+                still_valid = _is_future(raw.expires_at)
             is_stale = (age is not None and visible_days >= 0
                         and age > visible_days and not still_valid)
             if is_stale:
                 stale_count += 1
+
+            # ★ 录入闸门：超过保留期的直接不入库。
+            # 这是个实时通知工具，两周前的旧通知对你没有价值。
+            # 例外同上——「下周才开讲的讲座」虽然发布时间早，但仍然有用。
+            if (retention_days >= 0 and age is not None
+                    and age > retention_days and not still_valid):
+                skipped_old += 1
+                continue
             if (age is not None and decay_days >= 0 and age > decay_days
                     and not still_valid):
                 decay_count += 1
@@ -281,6 +298,9 @@ class Pipeline:
             })
             if item_id is not None:
                 fresh.append((item_id, raw))
+        if skipped_old:
+            log.info("其中 %d 条超过保留期 %d 天，直接未入库",
+                     skipped_old, retention_days)
         if stale_count:
             log.info("其中 %d 条超过 %d 天，标记为过期（隐藏且不推送）",
                      stale_count, visible_days)
@@ -288,6 +308,16 @@ class Pipeline:
             log.info("其中 %d 条超过 %d 天，重要度已降级", decay_count, decay_days)
         log.info("新条目 %d 条（其余为重复）", len(fresh))
         return fresh
+
+    def purge(self) -> int:
+        """清掉超过保留期的条目（星标保留）。返回删除条数。"""
+        days = int(self.cfg["filter"].get("retention_days", 14))
+        if days < 0:
+            return 0
+        removed = self.db.purge_old(days)
+        if removed:
+            log.info("已清理 %d 条超过 %d 天的旧条目（星标保留）", removed, days)
+        return removed
 
     async def _analyze(self, fresh: list[tuple[int, object]]) -> int:
         """对达到门槛的新条目调用 LLM。"""

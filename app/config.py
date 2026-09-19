@@ -25,7 +25,11 @@ DEFAULTS: dict = {
         "drop_keywords": [],
         "deadline_urgent_days": 3,
         "importance_decay_days": 7,
-        "visible_days": 60,
+        # 保留期：超过 N 天的条目**直接不入库**，库里已有的也会被定时清掉
+        # （星标的一律保留）。这是「实时通知」该有的行为——旧通知没有价值。
+        "retention_days": 14,
+        # 看板默认隐藏超过 N 天的（保留期内基本用不到，留作兜底）
+        "visible_days": 14,
         # 正文里提到未来 N 天内的日期 → 认为这条还没过期，不降级也不隐藏
         "upcoming_days": 30,
     },

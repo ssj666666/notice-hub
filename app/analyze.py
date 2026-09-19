@@ -67,25 +67,43 @@ def _is_future(date_str: str) -> bool:
     return target >= datetime.now(CST).date()
 
 
-def _has_future_date(text: str, days: int) -> str:
+def _has_future_date(text: str, days: int, reference: str = "") -> str:
     """正文里有没有"未来 N 天内"的日期。有就说明这条通知还没过期。
 
     例：10 天前发的通知，里面写着"9月25日前完成"，那它今天依然有用。
+
+    ★ 关键：无年份的日期（"9月26日"）要**相对这条通知的发布日期**推断年份，
+    不能一律套当前年。否则去年 9 月的旧预告里提到"9月26日"，
+    会被误判成"今年的 9 月 26 日快到了"，于是一年前的旧通知被留在库里。
     """
     if not text or days <= 0:
         return ""
     today = datetime.now(CST).date()
+    ref = today
+    if reference:
+        try:
+            ref = datetime.fromisoformat(str(reference).strip()).date()
+        except ValueError:
+            ref = today
+
     found: list[datetime.date] = []
     for pattern in _DATE_PATTERNS:
         for match in pattern.finditer(text):
             groups = match.groups()
             try:
                 if len(groups) == 3:
-                    year, month, day = (int(g) for g in groups)
+                    found.append(datetime(*(int(g) for g in groups)).date())
                 else:
                     month, day = (int(g) for g in groups)
-                    year = today.year
-                found.append(datetime(year, month, day).date())
+                    # 年份按发布日期推断：先试发布当年，早于发布日期就顺延一年
+                    for year in (ref.year, ref.year + 1):
+                        try:
+                            candidate = datetime(year, month, day).date()
+                        except ValueError:
+                            continue
+                        if candidate >= ref:
+                            found.append(candidate)
+                            break
             except ValueError:
                 continue
     upcoming = [d for d in found if 0 <= (d - today).days <= days]
@@ -131,10 +149,16 @@ def prescreen(item: RawItem, cfg: dict, source_weight: float = 1.0) -> dict:
     # 两种例外不算过期：
     #   1) 采集器给了 expires_at 且还没到期（讲座：提前一个月发布、下周才开讲）
     #   2) 正文里提到未来 N 天内的日期（"9月25日前完成"）
+    #      —— 但通知本身不能太老（stale_exempt_max_age_days），
+    #         否则一条 75 天前的旧通知里随便提个未来日期就能永久赖在库里
     age = _age_days(item.published_at)
     decay_days = int(flt.get("importance_decay_days", 7))
+    exempt_max_age = int(flt.get("stale_exempt_max_age_days", 45))
+    too_old_for_exempt = (age is not None and exempt_max_age >= 0
+                          and age > exempt_max_age)
     still_valid = _is_future(item.expires_at)
-    upcoming = _has_future_date(text, int(flt.get("upcoming_days", 30)))
+    upcoming = "" if too_old_for_exempt else _has_future_date(
+        text, int(flt.get("upcoming_days", 30)), item.published_at)
     if not dropped and age is not None and decay_days >= 0 and age > decay_days \
             and not still_valid and not upcoming:
         if importance > 2:
