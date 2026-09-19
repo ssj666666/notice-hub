@@ -567,7 +567,7 @@ sources:
       weight: 1.4
     - name: 北医教育处·重要通知
       campus: 医学部
-      enabled: true
+      enabled: false
       url: https://jiaoyuchu.bjmu.edu.cn/tzgggb/zzytz/index.htm
       item_selector: "div.list30 ul li"
       title_selector: "a"
@@ -576,7 +576,7 @@ sources:
       weight: 1.5
     - name: 北医教育处·综合信息
       campus: 医学部
-      enabled: true
+      enabled: false
       url: https://jiaoyuchu.bjmu.edu.cn/tzgggb/jctz/index.htm
       item_selector: "div.list30 ul li"
       title_selector: "a"
@@ -813,6 +813,98 @@ sources:
       date_selector: "p"
       interval_minutes: 120
       weight: 1.4
+
+
+# ===== 北医教育处（更正：真正的总栏是 /tzgggb/，之前接的 zzytz/jctz 是陈旧子栏目）=====
+    # 总栏一条覆盖推免、选课、四六级、转专业、毕业审核、科研项目
+    - name: 北医教育处·通知公告总栏
+      campus: 医学部
+      url: https://jiaoyuchu.bjmu.edu.cn/tzgggb/index.htm
+      item_selector: "div.list30 li"
+      title_selector: "div.title"
+      link_selector: "a"
+      date_selector: "div.time"
+      interval_minutes: 20
+      weight: 1.7
+    - name: 北医教育处·选课通知
+      campus: 医学部
+      url: https://jiaoyuchu.bjmu.edu.cn/tzgggb/xkjxtz/index.htm
+      item_selector: "div.list30 li"
+      title_selector: "div.title"
+      link_selector: "a"
+      date_selector: "div.time"
+      interval_minutes: 30
+      weight: 1.6
+    - name: 北医教育处·四六级
+      campus: 医学部
+      url: https://jiaoyuchu.bjmu.edu.cn/tzgggb/slj/index.htm
+      item_selector: "div.list30 li"
+      title_selector: "div.title"
+      link_selector: "a"
+      date_selector: "div.time"
+      interval_minutes: 60
+      weight: 1.6
+    - name: 北医教育处·课表考试安排
+      campus: 医学部
+      url: https://jiaoyuchu.bjmu.edu.cn/tzgggb/kwgljxtz/index.htm
+      item_selector: "div.list30 li"
+      title_selector: "div.title"
+      link_selector: "a"
+      date_selector: "div.time"
+      interval_minutes: 60
+      weight: 1.5
+    - name: 北医教育处·学生科研项目
+      campus: 医学部
+      url: https://jiaoyuchu.bjmu.edu.cn/tzgggb/dcxm/index.htm
+      item_selector: "div.list30 li"
+      title_selector: "div.title"
+      link_selector: "a"
+      date_selector: "div.time"
+      default_category: 科研竞赛
+      interval_minutes: 60
+      weight: 1.4
+    - name: 北医教育处·新闻资讯
+      campus: 医学部
+      url: https://jiaoyuchu.bjmu.edu.cn/xwzx/index.htm
+      item_selector: "div.list40 li"
+      title_selector: "div.title"
+      link_selector: "a"
+      date_selector: "div.time"
+      interval_minutes: 60
+      weight: 1.2
+
+    # ===== 医学部主站另外两个栏目 =====
+    - name: 医学部·采购公告
+      campus: 医学部
+      url: https://www.bjmu.edu.cn/zbgg/index.htm
+      item_selector: "li.noImg"
+      title_selector: "a h3"
+      link_selector: "a"
+      date_selector: "span.study-date"
+      interval_minutes: 120
+      weight: 1.1
+    - name: 医学部·北医声明
+      campus: 医学部
+      url: https://www.bjmu.edu.cn/bysm/index.htm
+      item_selector: "li.noImg"
+      title_selector: "a h3"
+      link_selector: "a"
+      date_selector: "span.study-date"
+      interval_minutes: 180
+      weight: 1.1
+
+    # ===== 北医新闻网（只有这两个栏目有内容）=====
+    # 日期被拆成两个标签：<strong>16</strong><i>2026-09</i>
+    # 所以 date_selector 传一个列表，按顺序拼成 2026-09-16
+    - name: 北医新闻网·北医要闻
+      campus: 医学部
+      url: https://bynews.bjmu.edu.cn/xxdt/index.htm
+      item_selector: "ul.synNewsInfoList li"
+      title_selector: "h3"
+      link_selector: "a"
+      date_selector: ["i", "strong"]
+      interval_minutes: 60
+      weight: 1.3
 
 
 # ============================================================

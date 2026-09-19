@@ -308,12 +308,22 @@ class WebCollector:
             href = lnode.get("href", "") if hasattr(lnode, "get") else ""
             node_text = node.get_text(" ", strip=True)
 
-            # 日期：优先用指定的 date_selector，否则在整条记录里找
+            # 日期：优先用指定的 date_selector，否则在整条记录里找。
+            # date_selector 可以是字符串，也可以是列表——列表时按顺序用 "-" 拼起来。
+            # 有些站把日期拆成两个标签，比如 bynews.bjmu.edu.cn：
+            #   <strong>16</strong><i>2026-09</i>  ->  ["i", "strong"] => "2026-09-16"
             published = ""
             if date_sel:
-                dnode = node.select_one(date_sel)
-                if dnode is not None:
-                    published = extract_date(dnode.get_text(" ", strip=True))
+                sels = date_sel if isinstance(date_sel, (list, tuple)) else [date_sel]
+                pieces = []
+                for sel in sels:
+                    dnode = node.select_one(sel)
+                    if dnode is not None:
+                        piece = dnode.get_text("", strip=True)
+                        if piece:
+                            pieces.append(piece)
+                if pieces:
+                    published = extract_date("-".join(pieces))
             if not published:
                 published = extract_date(node_text)
 
