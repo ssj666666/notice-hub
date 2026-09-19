@@ -1,5 +1,5 @@
 /* 只缓存外壳，API 永远走网络，避免看到过期数据 */
-const CACHE = 'notice-hub-shell-v1';
+const CACHE = 'notice-hub-shell-v2';
 const SHELL = [
   './',
   './index.html',

@@ -257,31 +257,80 @@ function renderList() {
     return;
   }
 
-  // 未选中具体分类时，按分类分组展示
-  const order = state.categories.map((c) => c.key);
-  const buckets = new Map();
-  for (const it of state.items) {
-    const key = it.category || '其他';
-    if (!buckets.has(key)) buckets.set(key, []);
-    buckets.get(key).push(it);
-  }
-  const keys = [...buckets.keys()].sort((a, b) => {
-    const ia = order.indexOf(a);
-    const ib = order.indexOf(b);
+  // 分组展示：
+  //   未选校区 → 两级：先「北大本部 / 医学部 / 通用」大目录，里面再按类目细分
+  //   选了校区 → 一级：只按类目细分
+  const catOrder = state.categories.map((c) => c.key);
+  const campusOrder = state.campuses.map((c) => c.key);
+  const campusMeta = (key) =>
+    state.campuses.find((c) => c.key === key) ||
+    { icon: '📡', key, desc: '不属于特定校区' };
+
+  const sortCats = (keys) => keys.sort((a, b) => {
+    const ia = catOrder.indexOf(a);
+    const ib = catOrder.indexOf(b);
     return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
   });
 
-  let html = '';
-  for (const key of keys) {
+  const catBlock = (items, key) => {
     const meta = state.categories.find((c) => c.key === key) || {};
-    const group = buckets.get(key);
-    html += `<div class="cat-group">
+    return `<div class="cat-group">
         <span>${meta.icon || '📌'} ${esc(key)}</span>
         <span class="line"></span>
-        <span class="cnt">${group.length} 条</span>
-      </div>`;
-    html += group.map((it) => cardHtml(it, false)).join('');
+        <span class="cnt">${items.length} 条</span>
+      </div>` + items.map((it) => cardHtml(it, false)).join('');
+  };
+
+  let html = '';
+
+  if (state.campus === '') {
+    // ---------- 两级：校区 → 类目 ----------
+    const byCampus = new Map();
+    for (const it of state.items) {
+      const key = it.campus || '通用';
+      if (!byCampus.has(key)) byCampus.set(key, []);
+      byCampus.get(key).push(it);
+    }
+    const cKeys = [...byCampus.keys()].sort((a, b) => {
+      const ia = campusOrder.indexOf(a);
+      const ib = campusOrder.indexOf(b);
+      return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+    });
+
+    for (const ck of cKeys) {
+      const items = byCampus.get(ck);
+      const cm = campusMeta(ck);
+      // 一级标题（大目录）
+      html += `<div class="campus-group" data-campus-section="${esc(ck)}">
+          <span class="cg-icon">${cm.icon}</span>
+          <span class="cg-name">${esc(ck)}</span>
+          <span class="cg-cnt">${items.length} 条</span>
+        </div>`;
+
+      // 二级：类目
+      const buckets = new Map();
+      for (const it of items) {
+        const k = it.category || '其他';
+        if (!buckets.has(k)) buckets.set(k, []);
+        buckets.get(k).push(it);
+      }
+      for (const k of sortCats([...buckets.keys()])) {
+        html += catBlock(buckets.get(k), k);
+      }
+    }
+  } else {
+    // ---------- 单校区：只按类目 ----------
+    const buckets = new Map();
+    for (const it of state.items) {
+      const k = it.category || '其他';
+      if (!buckets.has(k)) buckets.set(k, []);
+      buckets.get(k).push(it);
+    }
+    for (const k of sortCats([...buckets.keys()])) {
+      html += catBlock(buckets.get(k), k);
+    }
   }
+
   list.innerHTML = html;
 }
 
