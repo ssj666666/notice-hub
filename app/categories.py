@@ -1,5 +1,9 @@
 """通知分类体系。
 
+两级分类：
+  一级「校区」：北大本部 / 医学部 / 通用（看板先按这个分两大块）
+  二级「类目」：教务学业 / 讲座讲坛 / 就业实习 ……（每块下面再细分）
+
 分类逻辑分两层：
   1. 规则分类 classify()：关键词加权计分，零成本、可预测、随时可改
   2. LLM 分类：在 llm_judge 里让模型从同一份类目表里选，处理规则拿不准的
@@ -8,6 +12,40 @@
 """
 from __future__ import annotations
 
+# ============================================================
+#  一级分类：校区 / 归属
+#  看板先按这个分两大块，再在每块下面按二级类目细分。
+#  「通用」用于不属于任何校区的源（比如自己订阅的公众号 RSS）。
+# ============================================================
+CAMPUSES: list[dict] = [
+    {"key": "北大本部", "icon": "🏛", "desc": "燕园 · 校本部各单位"},
+    {"key": "医学部", "icon": "⚕️", "desc": "北医 · 医学部各单位"},
+    {"key": "通用", "icon": "📡", "desc": "不属于特定校区的源（自定义订阅等）"},
+]
+CAMPUS_KEYS = [c["key"] for c in CAMPUSES]
+CAMPUS_ICONS = {c["key"]: c["icon"] for c in CAMPUSES}
+DEFAULT_CAMPUS = "通用"
+
+_MEDICAL_HINTS = ("医学部", "北医", "医学", "药学院", "公共卫生", "护理")
+_PKU_HINTS = ("北大", "教务部", "团委", "新闻网", "体育", "讲座网", "就业")
+
+
+def campus_from_name(name: str) -> str:
+    """没显式配置 campus 时，按源名字猜一个。"""
+    if not name:
+        return DEFAULT_CAMPUS
+    for hint in _MEDICAL_HINTS:
+        if hint in name:
+            return "医学部"
+    for hint in _PKU_HINTS:
+        if hint in name:
+            return "北大本部"
+    return DEFAULT_CAMPUS
+
+
+# ============================================================
+#  二级分类
+# ============================================================
 # 顺序即优先级（同分时靠前者胜出）。key 会存进数据库，改名要谨慎。
 CATEGORIES: list[dict] = [
     {

@@ -5,3 +5,5 @@ feedparser>=6.0.10
 APScheduler>=3.10
 PyYAML>=6.0
 beautifulsoup4>=4.12
+# 桌面 App 窗口。没装上也能用，程序会自动退回 Edge 的 --app 无边框窗口
+pywebview>=5.0

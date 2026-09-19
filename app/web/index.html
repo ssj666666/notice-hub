@@ -31,6 +31,12 @@
 
 <section class="stats" id="stats"></section>
 
+<!-- 一级分类：校区 -->
+<nav class="campuses" id="campuses"></nav>
+
+<!-- 二级分类：类目 -->
+<nav class="cats" id="cats"></nav>
+
 <nav class="filters" id="filters">
   <button class="chip active" data-view="all">全部通知</button>
   <button class="chip" data-view="key">只看重点</button>
@@ -40,17 +46,12 @@
   <button class="chip ghost" id="btn-readall">全部已读</button>
 </nav>
 
-<div class="searchbar">
-  <input id="search" type="search" placeholder="搜索标题或正文…" autocomplete="off">
-</div>
-
-<nav class="cats" id="cats"></nav>
-
 <div class="toolbar">
+  <input id="search" type="search" class="search-inline" placeholder="搜索…" autocomplete="off">
   <button class="mini" id="btn-sort" title="切换排序方式">⇅ 按重要度</button>
-  <button class="mini" id="btn-stale" title="显示/隐藏过期通知">过期通知：隐藏</button>
-  <span class="toolbar-hint" id="toolbar-hint"></span>
+  <button class="mini" id="btn-stale" title="显示/隐藏过期通知">过期：隐藏</button>
 </div>
+<div class="toolbar-hint-row"><span class="toolbar-hint" id="toolbar-hint"></span></div>
 
 <main id="list" class="list"></main>
 

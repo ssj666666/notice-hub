@@ -7,6 +7,7 @@ from datetime import datetime, time as dtime
 import httpx
 
 from .analyze import _is_future, judge_batch, prescreen
+from .categories import DEFAULT_CAMPUS, campus_from_name
 from .collectors import collect_all
 from .db import CST, Database, now_iso
 from .notify import WeChatPusher, build_message
@@ -76,10 +77,13 @@ class Pipeline:
 
         visible_days = int(self.cfg["filter"].get("visible_days", 60))
         default_cats: dict[str, str] = {}
+        campuses: dict[str, str] = {}
         for group in ("rss", "imap", "web", "api"):
             for src in self.cfg["sources"].get(group) or []:
+                name = src.get("name", "")
                 if src.get("default_category"):
-                    default_cats[src.get("name", "")] = str(src["default_category"])
+                    default_cats[name] = str(src["default_category"])
+                campuses[name] = str(src.get("campus") or campus_from_name(name))
         rows = self.db.all_items()
         changed = 0
         for row in rows:
@@ -93,18 +97,20 @@ class Pipeline:
             fallback = default_cats.get(raw.source)
             if fallback and verdict["category"] == "其他":
                 verdict["category"] = fallback
+            campus = campuses.get(raw.source, DEFAULT_CAMPUS)
             age = verdict.get("age_days")
             still_valid = bool(verdict.get("upcoming"))
             is_stale = (age is not None and visible_days >= 0
                         and age > visible_days and not still_valid)
             if (row["importance"] != verdict["importance"]
                     or (row.get("category") or "") != verdict["category"]
+                    or (row.get("campus") or "") != campus
                     or bool(row["dropped"]) != bool(verdict["dropped"])
                     or bool(row["is_stale"]) != is_stale):
                 changed += 1
             self.db.update_verdict(int(row["id"]), verdict["importance"],
                                    verdict["category"], verdict["analysis"],
-                                   verdict["dropped"], is_stale)
+                                   verdict["dropped"], is_stale, campus)
         if changed:
             log.info("重算完成：%d/%d 条判定发生变化", changed, len(rows))
         return len(rows)
@@ -117,8 +123,10 @@ class Pipeline:
         sources = [s for s in enabled_sources(self.cfg) if s.get("name") == name]
         if not sources:
             return {"error": f"找不到源：{name}"}
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            items = await collect_all(self.cfg, self.db, client, sources)
+        async with httpx.AsyncClient(follow_redirects=True, verify=True) as safe, \
+                httpx.AsyncClient(follow_redirects=True, verify=False) as lax:
+            items = await collect_all(self.cfg, self.db,
+                                      {True: safe, False: lax}, sources)
         fresh = self._store(items)
         self.db.mark_fetched(name)
         return {"collected": len(items), "new": len(fresh), "source": name}
@@ -185,8 +193,11 @@ class Pipeline:
         if not due:
             log.info("没有任何源到点，本轮不抓取")
             return []
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            items = await collect_all(self.cfg, self.db, client, due)
+        # 两个客户端：默认校验证书；证书链不完整的站（需 verify_ssl: false）走另一个
+        async with httpx.AsyncClient(follow_redirects=True, verify=True) as safe, \
+                httpx.AsyncClient(follow_redirects=True, verify=False) as lax:
+            items = await collect_all(self.cfg, self.db,
+                                      {True: safe, False: lax}, due)
         for src in due:
             self.db.mark_fetched(src.get("name", ""))
         return items
@@ -196,12 +207,14 @@ class Pipeline:
         weights = {}
         change_detect = set()   # 自己处理了基线的源，流水线不要再抑制一次
         default_cats: dict[str, str] = {}   # 整站就是某一类的源（讲座网=讲座讲坛）
+        campuses: dict[str, str] = {}       # 源 → 一级分类（北大本部 / 医学部）
         for group in ("rss", "imap", "web", "api"):
             for src in self.cfg["sources"].get(group) or []:
                 name = src.get("name", "")
                 weights[name] = float(src.get("weight", 1.0))
                 if src.get("default_category"):
                     default_cats[name] = str(src["default_category"])
+                campuses[name] = str(src.get("campus") or campus_from_name(name))
                 if group == "web" and not src.get("item_selector") \
                         and not src.get("auto_detect"):
                     change_detect.add(name)
@@ -258,6 +271,7 @@ class Pipeline:
                 "content": raw.content,
                 "published_at": raw.published_at,
                 "importance": verdict["importance"],
+                "campus": campuses.get(raw.source, DEFAULT_CAMPUS),
                 "category": verdict["category"],
                 "analysis": verdict["analysis"] + ("+stale" if is_stale else ""),
                 "matched": verdict["matched"],

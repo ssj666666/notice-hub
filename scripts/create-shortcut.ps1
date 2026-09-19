@@ -20,7 +20,8 @@ $shortcutNm = ([char]0x901A) + ([char]0x77E5) + ([char]0x4E2D) + ([char]0x67A2) 
 
 $scriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectDir = Split-Path -Parent $scriptDir
-$vbsTarget  = Join-Path $scriptDir 'start-silent.vbs'
+# 桌面快捷方式指向「App 窗口」启动器（原生窗口，无浏览器地址栏）
+$vbsTarget  = Join-Path $scriptDir 'start-app-silent.vbs'
 $iconPath   = Join-Path $projectDir 'assets\notice-hub.ico'
 
 if (-not (Test-Path $vbsTarget)) { throw "Cannot find launcher: $vbsTarget" }

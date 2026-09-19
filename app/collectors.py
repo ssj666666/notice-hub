@@ -555,15 +555,27 @@ class APICollector:
 # ============================================================
 #  汇总
 # ============================================================
-async def collect_all(cfg: dict, db, client: httpx.AsyncClient,
+async def collect_all(cfg: dict, db, clients,
                       sources: list[dict] | None = None) -> list[RawItem]:
+    """采集所有到期的源。
+
+    clients 可以是单个 AsyncClient，也可以是 {True: 校验的, False: 不校验的}
+    两个客户端——有些学校站（比如北大资助中心 www.sfao.pku.edu.cn）证书链
+    不完整，必须跳过校验才连得上，但又不想全局关掉校验。
+    """
     import asyncio
 
     from .config import enabled_sources
 
+    def pick(src: dict):
+        if not isinstance(clients, dict):
+            return clients
+        return clients[bool(src.get("verify_ssl", True))]
+
     srcs = sources if sources is not None else enabled_sources(cfg)
     tasks = []
     for src in srcs:
+        client = pick(src)
         stype = src.get("_type") or src.get("type")
         if stype == "rss":
             tasks.append(RSSCollector(src, client).collect())

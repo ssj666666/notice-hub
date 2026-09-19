@@ -7,6 +7,7 @@ server:
   host: 0.0.0.0          # 0.0.0.0 = 允许手机/其他设备访问
   port: 8787
   open_browser: true     # 启动时自动打开看板
+  lan_access: true       # 桌面 App 模式下也监听局域网，手机才能连上
 
 # 每隔多少分钟抓取一次
 poll_interval_minutes: 10
@@ -57,8 +58,9 @@ sources:
     # 静态页面抓不到（列表是 JS 渲染的），但带 XHR 头请求同一个 URL 会返回 JSON。
     # 实测共 941 场讲座，含主讲人、地点、开讲时间。
     - name: 北大讲座网
+      campus: 北大本部
       enabled: true
-      url: https://lecture.pku.edu.cn/index.php
+      url: https://resource.pku.edu.cn/index.php
       params:
         r: lecturepre/index
         per-page: "60"
@@ -91,6 +93,7 @@ sources:
     # 注意：它的 /f/xxx/show 这类 HTML 详情页会 302 跳登录，
     #       但对应的 ajax_* 接口是公开的，所以只走接口。
     - name: 北大就业·通知公告
+      campus: 北大本部
       enabled: true
       url: https://scc.pku.edu.cn/f/newsCenter/ajax_thisNewsAndSiblingCategoryList
       method: POST
@@ -114,6 +117,7 @@ sources:
       weight: 1.4
 
     - name: 北大就业·招聘信息
+      campus: 北大本部
       enabled: true
       url: https://scc.pku.edu.cn/f/recruitmentinfo/ajax_frontRecruitinfo
       method: POST
@@ -141,6 +145,7 @@ sources:
       weight: 1.4
 
     - name: 北大就业·宣讲会
+      campus: 北大本部
       enabled: true
       url: https://scc.pku.edu.cn/f/recruitmentFair/ajax_frontRecruitfair
       method: GET
@@ -173,6 +178,7 @@ sources:
     #      所以 timeout 设 120 秒，抓取间隔也放长，别把人家站打挂
     # 返回头写 text/html 但 body 是 JSON，采集器已做容错解析。
     - name: 医学部就业·就业信息
+      campus: 医学部
       enabled: true
       url: https://scdc.bjmu.edu.cn/portal/home/recruitment-list.html
       params:
@@ -203,6 +209,7 @@ sources:
     # 新闻公告栏目：最新一条停在 2022-09-30，基本是僵尸栏目。
     # 仍然接上（这样"源状态"面板会如实显示它停更），但间隔放到 6 小时。
     - name: 医学部就业·新闻公告
+      campus: 医学部
       enabled: true
       url: https://scdc.bjmu.edu.cn/portal/home/bulletinInfo-list.html
       params:
@@ -229,6 +236,191 @@ sources:
       limit: 20
       weight: 1.2
 
+
+    # ===== 北大校内门户（免登录 JSON，一个源盖住全校）=====
+    # 子代理在 NoticeService.js 里挖到的接口，实测裸请求即返回 JSON，
+    # 不需要 token / cookie / 任何特殊头。
+    # 「部门通知」两万多条，含停水停电、场馆开放、各院系通知，是覆盖面最广的一个源。
+    - name: 北大门户·部门通知
+      campus: 北大本部
+      url: https://portal.pku.edu.cn/portal2017/notice/retrAllDeptNotice.do
+      method: GET
+      params:
+        start: "0"
+        limit: "50"
+        keyword: ALL
+      items_path: rows
+      title_field: Title
+      date_field: Time
+      url_field: DocUrl
+      default_category: 行政通知
+      content_fields: [Department, Type]
+      field_labels:
+        Department: 发布单位
+        Type: 类型
+      interval_minutes: 15
+      limit: 50
+      weight: 1.7
+
+    - name: 北大门户·学校通知
+      campus: 北大本部
+      url: https://portal.pku.edu.cn/portal2017/notice/retrAllSchoolNotice.do
+      method: GET
+      params:
+        start: "0"
+        limit: "50"
+        keyword: ALL
+      items_path: rows
+      title_field: Title
+      date_field: Time
+      url_field: DocUrl
+      default_category: 行政通知
+      content_fields: [Department, Type]
+      field_labels:
+        Department: 发布单位
+        Type: 类型
+      interval_minutes: 15
+      limit: 50
+      weight: 1.7
+
+# ===== 就业中心：通栏接口（一个接口通吃 22 个栏目，只换 categoryId）=====
+    # 实测零鉴权裸请求即可，不需要 token / cookie / 任何 header。
+    - name: 就业·重点推荐
+      campus: 北大本部
+      url: https://scc.pku.edu.cn/f/newsCenter/ajax_thisNewsAndSiblingCategoryList
+      method: POST
+      form:
+        categoryId: 4e0ccc2319c14e93b1688f229516a3d3
+        pageNo: "1"
+        pageSize: "50"
+      items_path: object.newsPage.list
+      title_field: title
+      url_field: url
+      url_base: https://scc.pku.edu.cn
+      date_field: releaseDate
+      default_category: 就业实习
+      content_fields: [description, publisher]
+      field_labels:
+        description: 摘要
+        publisher: 发布
+      interval_minutes: 30
+      limit: 50
+      weight: 1.8
+
+    - name: 就业·选调生通知公告
+      campus: 北大本部
+      url: https://scc.pku.edu.cn/f/newsCenter/ajax_thisNewsAndSiblingCategoryList
+      method: POST
+      form:
+        categoryId: 2444fd69e9ae4f9ca1af333c456efbce
+        pageNo: "1"
+        pageSize: "50"
+      items_path: object.newsPage.list
+      title_field: title
+      url_field: url
+      url_base: https://scc.pku.edu.cn
+      date_field: releaseDate
+      default_category: 就业实习
+      content_fields: [description]
+      field_labels:
+        description: 摘要
+      interval_minutes: 30
+      limit: 50
+      weight: 1.8
+
+    - name: 就业·国际组织实习
+      campus: 北大本部
+      url: https://scc.pku.edu.cn/f/newsCenter/ajax_thisNewsAndSiblingCategoryList
+      method: POST
+      form:
+        categoryId: 554d644092f84c1b9d257383d0380b55
+        pageNo: "1"
+        pageSize: "50"
+      items_path: object.newsPage.list
+      title_field: title
+      url_field: url
+      url_base: https://scc.pku.edu.cn
+      date_field: releaseDate
+      default_category: 国际交流
+      content_fields: [description]
+      field_labels:
+        description: 摘要
+      interval_minutes: 60
+      limit: 50
+      weight: 1.5
+
+    - name: 就业·实习信息
+      campus: 北大本部
+      url: https://scc.pku.edu.cn/f/recruitmentinfo/ajax_frontRecruitinfo
+      method: POST
+      form:
+        pageNo: "1"
+        pageSize: "50"
+        positionType: "2"
+        city: ""
+        title: ""
+      items_path: object.list
+      title_field: title
+      url_field: url
+      url_base: https://scc.pku.edu.cn
+      date_field: startTime
+      default_category: 就业实习
+      content_fields: [corporationName, majorName, education, endTime]
+      field_labels:
+        corporationName: 单位
+        majorName: 专业要求
+        education: 学历要求
+        endTime: 截止时间
+      interval_minutes: 60
+      limit: 50
+      weight: 1.6
+
+    - name: 就业·校内双选会
+      campus: 北大本部
+      url: https://scc.pku.edu.cn/f/bilateralchosefair/ajax_frontBilateralchosefair
+      method: POST
+      form:
+        pageNo: "1"
+        pageSize: "50"
+        fairType: "1"
+        title: ""
+      items_path: object.list
+      title_field: title
+      url_field: url
+      url_base: https://scc.pku.edu.cn
+      date_field: startTime
+      expire_field: endTime
+      default_category: 就业实习
+      content_fields: [place, holdStatus, endTime]
+      field_labels:
+        place: 地点
+        holdStatus: 状态
+        endTime: 结束时间
+      interval_minutes: 60
+      limit: 50
+      weight: 1.7
+
+    - name: 就业·选调生宣讲会
+      campus: 北大本部
+      url: https://scc.pku.edu.cn/f/transferStuFair/ajax_list
+      method: POST
+      form:
+        pageNo: "1"
+        pageSize: "50"
+      items_path: data.list
+      title_field: title
+      url_field: url
+      url_base: https://scc.pku.edu.cn
+      date_field: fairDate
+      default_category: 就业实习
+      content_fields: [fairPlace, fairStatusValue]
+      field_labels:
+        fairPlace: 地点
+        fairStatusValue: 状态
+      interval_minutes: 60
+      limit: 50
+      weight: 1.5
+
   # ---------- 网页监控 ----------
   # 两种模式：
   #   模式A 结构化：填 item_selector（+可选 title/link/date_selector）
@@ -239,6 +431,7 @@ sources:
   web:
     # ===== 教务部 6 个分类（原来只配了 type=4，漏掉了四六级和推免）=====
     - name: 教务部·选课与课程
+      campus: 北大本部
       enabled: true
       url: http://www.dean.pku.edu.cn/web/notice.php?type=4
       item_selector: "div.notice_item"
@@ -246,6 +439,7 @@ sources:
       link_selector: "a"
       weight: 1.6
     - name: 教务部·四六级与大学英语
+      campus: 北大本部
       enabled: true
       url: http://www.dean.pku.edu.cn/web/notice.php?type=6
       item_selector: "div.notice_item"
@@ -253,6 +447,7 @@ sources:
       link_selector: "a"
       weight: 1.6
     - name: 教务部·推免
+      campus: 北大本部
       enabled: true
       url: http://www.dean.pku.edu.cn/web/notice.php?type=7
       item_selector: "div.notice_item"
@@ -260,6 +455,7 @@ sources:
       link_selector: "a"
       weight: 1.5
     - name: 教务部·转专业与招生
+      campus: 北大本部
       enabled: true
       url: http://www.dean.pku.edu.cn/web/notice.php?type=3
       item_selector: "div.notice_item"
@@ -267,6 +463,7 @@ sources:
       link_selector: "a"
       weight: 1.4
     - name: 教务部·本科生科研
+      campus: 北大本部
       enabled: true
       url: http://www.dean.pku.edu.cn/web/notice.php?type=5
       item_selector: "div.notice_item"
@@ -274,6 +471,7 @@ sources:
       link_selector: "a"
       weight: 1.4
     - name: 教务部·双专业与辅修
+      campus: 北大本部
       enabled: true
       url: http://www.dean.pku.edu.cn/web/notice.php?type=2
       item_selector: "div.notice_item"
@@ -285,6 +483,7 @@ sources:
     # 讲座类信息时效性最强，interval_minutes 设成 5 分钟，尽量当天就同步到。
     # 注意：能不能「当日」最终取决于源页面本身什么时候更新，程序只能尽快发现。
     - name: 北大新闻网·信息预告
+      campus: 北大本部
       enabled: true
       url: http://news.pku.edu.cn/wyyd/xxyg/index.htm
       item_selector: "li.imgHover.noImg"
@@ -294,6 +493,7 @@ sources:
       interval_minutes: 5
       weight: 1.3
     - name: 医学部·讲座信息
+      campus: 医学部
       enabled: true
       url: https://www.bjmu.edu.cn/jzxx/index.htm
       item_selector: "ul.list07 li"
@@ -304,6 +504,7 @@ sources:
 
     # ===== 医学部（替代「北京大学医学部」「北京大学医学部教务处」）=====
     - name: 医学部·通知公告
+      campus: 医学部
       enabled: true
       url: https://www.bjmu.edu.cn/tzgg/index.htm
       item_selector: "li.noImg"
@@ -311,6 +512,7 @@ sources:
       link_selector: "a"
       weight: 1.5
     - name: 医学部·校园信息
+      campus: 医学部
       enabled: true
       url: https://www.bjmu.edu.cn/xyxx/index.htm
       auto_detect: true
@@ -320,6 +522,7 @@ sources:
     # 这个站用 auto_detect 识别不出来（li 没有 class），
     # 但每条都带 id="line_uXX_N"，用它精确定位。
     - name: 北大体育教研部
+      campus: 北大本部
       enabled: true
       url: https://pe.pku.edu.cn/xwzx/ttxw.htm
       item_selector: "li[id^=line_u]"
@@ -330,6 +533,7 @@ sources:
     # 通知公告：招新、招聘、场馆岗位、推免等都在这里
     # （另一个「学生体育社团和普通生代表队」页是介绍性内容，没有通知列表，接不了）
     - name: 北大体育·通知公告
+      campus: 北大本部
       enabled: true
       url: https://pe.pku.edu.cn/xwzx/tzgg.htm
       item_selector: "li[id^=line_u]"
@@ -341,6 +545,7 @@ sources:
     # ===== 校团委（替代「北京大学学生会」「北京大学团委」）=====
     # 实测：这个栏目是静态 HTML，能抓到（另一个「精品讲座」栏目是空的）
     - name: 北大团委·重要通知
+      campus: 北大本部
       enabled: true
       url: https://youth.pku.edu.cn/tzgg/zytz/index.htm
       item_selector: "li.list-type"
@@ -352,6 +557,7 @@ sources:
     # ===== 北医团委 / 北医教育处（补上医学部这两块）=====
     # 注意：这两个栏目必须带 index.htm，只写目录名返回的是空壳页面。
     - name: 北医团委·通知公告
+      campus: 医学部
       enabled: true
       url: https://bytw.bjmu.edu.cn/tzgg/index.htm
       item_selector: "ul.t2-list01 li"
@@ -360,6 +566,7 @@ sources:
       interval_minutes: 30
       weight: 1.4
     - name: 北医教育处·重要通知
+      campus: 医学部
       enabled: true
       url: https://jiaoyuchu.bjmu.edu.cn/tzgggb/zzytz/index.htm
       item_selector: "div.list30 ul li"
@@ -368,6 +575,7 @@ sources:
       interval_minutes: 30
       weight: 1.5
     - name: 北医教育处·综合信息
+      campus: 医学部
       enabled: true
       url: https://jiaoyuchu.bjmu.edu.cn/tzgggb/jctz/index.htm
       item_selector: "div.list30 ul li"
@@ -383,6 +591,230 @@ sources:
 
 # ============================================================
 #  规则预筛：第一道漏斗，几乎零成本地砍掉大部分噪音
+# ===== 教务部：聚合页 + 原配置漏掉的分类 =====
+    # 子代理实测教务部实际有 type=0..31（原配置只有 2~7）。
+    # type=0 是「全部」聚合页，一个源顶 31 个分类，42 页。
+    - name: 教务部·全部通知
+      campus: 北大本部
+      url: http://www.dean.pku.edu.cn/web/notice.php?type=0
+      item_selector: "div.notice_item"
+      title_selector: "a"
+      link_selector: "a"
+      interval_minutes: 20
+      weight: 1.6
+    - name: 教务部·学籍
+      campus: 北大本部
+      url: http://www.dean.pku.edu.cn/web/notice.php?type=25
+      item_selector: "div.notice_item"
+      title_selector: "a"
+      link_selector: "a"
+      interval_minutes: 60
+      weight: 1.5
+    - name: 教务部·毕业
+      campus: 北大本部
+      url: http://www.dean.pku.edu.cn/web/notice.php?type=23
+      item_selector: "div.notice_item"
+      title_selector: "a"
+      link_selector: "a"
+      interval_minutes: 60
+      weight: 1.4
+    - name: 教务部·国际交流
+      campus: 北大本部
+      url: http://www.dean.pku.edu.cn/web/notice.php?type=30
+      item_selector: "div.notice_item"
+      title_selector: "a"
+      link_selector: "a"
+      interval_minutes: 30
+      weight: 1.4
+
+    # ===== 学工部 =====
+    - name: 学工部·资讯通知
+      campus: 北大本部
+      url: https://xgb.pku.edu.cn/sylm/zxtz/index.htm
+      item_selector: "ul.item-list li"
+      title_selector: "a"
+      link_selector: "a"
+      date_selector: "span.s-dt"
+      interval_minutes: 30
+      weight: 1.5
+    - name: 学工部·公开公示
+      campus: 北大本部
+      url: https://xgb.pku.edu.cn/sylm/gkgs/index.htm
+      item_selector: "ul.item-list li"
+      title_selector: "a"
+      link_selector: "a"
+      date_selector: "span.s-dt"
+      interval_minutes: 60
+      weight: 1.4
+    - name: 学工部·动态新闻
+      campus: 北大本部
+      url: https://xgb.pku.edu.cn/sylm/dtxw/index.htm
+      item_selector: "ul.item-list li"
+      title_selector: "a"
+      link_selector: "a"
+      date_selector: "span.s-dt"
+      interval_minutes: 60
+      weight: 1.2
+
+    # ===== 研究生院 =====
+    - name: 研究生院·通知公告
+      campus: 北大本部
+      url: https://grs.pku.edu.cn/tzgg/index.htm
+      item_selector: "ul.item-list li"
+      title_selector: "a"
+      link_selector: "a"
+      interval_minutes: 30
+      weight: 1.3
+    - name: 研究生院·新闻动态
+      campus: 北大本部
+      url: https://grs.pku.edu.cn/xwdt/index.htm
+      item_selector: "ul.item-list li"
+      title_selector: "a"
+      link_selector: "a"
+      interval_minutes: 60
+      weight: 1.2
+
+    # ===== 图书馆 / 心理中心 / 校医院 =====
+    - name: 图书馆·公告
+      campus: 北大本部
+      url: https://www.lib.pku.edu.cn/2xxzzfw/26xwgg/262gglb/index.htm
+      item_selector: "div.sub_0262 ul li"
+      title_selector: "div.title"
+      link_selector: "a"
+      date_selector: "div.time"
+      interval_minutes: 60
+      weight: 1.3
+    - name: 图书馆·新闻
+      campus: 北大本部
+      url: https://www.lib.pku.edu.cn/2xxzzfw/26xwgg/261xwlb/index.htm
+      item_selector: "div.sub_0261 ul li"
+      title_selector: "div.title"
+      link_selector: "a"
+      date_selector: "div.time"
+      interval_minutes: 60
+      weight: 1.2
+    - name: 心理中心·中心通知
+      campus: 北大本部
+      url: https://counseling.pku.edu.cn/zxtz/index.htm
+      item_selector: "ul.sub_list li"
+      title_selector: "a"
+      link_selector: "a"
+      date_selector: "span.rightDate"
+      interval_minutes: 60
+      weight: 1.3
+    - name: 校医院·院内通知
+      campus: 北大本部
+      url: https://hospital.pku.edu.cn/
+      item_selector: "div#A_tabContent_1 ul li"
+      title_selector: "a"
+      link_selector: "a"
+      interval_minutes: 120
+      weight: 1.3
+
+    # ===== 学生资助中心 =====
+    # ⚠️ 这个站证书链不完整，必须跳过校验才能连（裸域 sfao.pku.edu.cn 还解析不了）
+    - name: 资助中心·通知公告
+      campus: 北大本部
+      url: https://www.sfao.pku.edu.cn/xwgg/tzgg/index.html
+      item_selector: "ul.newList li"
+      title_selector: "h4"
+      link_selector: "a"
+      date_selector: "h6"
+      verify_ssl: false
+      interval_minutes: 60
+      weight: 1.6
+    - name: 资助中心·新闻动态
+      campus: 北大本部
+      url: https://www.sfao.pku.edu.cn/xwgg/xwdt/index.html
+      item_selector: "ul.newList li"
+      title_selector: "h4"
+      link_selector: "a"
+      date_selector: "h6"
+      verify_ssl: false
+      interval_minutes: 60
+      weight: 1.3
+
+
+# ===== 计算中心 / 网络服务（校园网、校园卡、统一身份认证）=====
+    - name: 计算中心·通知公告
+      campus: 北大本部
+      url: https://cc.pku.edu.cn/notice.html
+      item_selector: "div#datalist div.item"
+      title_selector: "div.t1"
+      link_selector: "a"
+      date_selector: "div.t3"
+      interval_minutes: 30
+      weight: 1.6
+    - name: 网络服务·通知公告
+      campus: 北大本部
+      url: https://its.pku.edu.cn/notices.jsp
+      item_selector: "ul#noticelist li"
+      title_selector: "a"
+      link_selector: "a"
+      date_selector: "span.s-dt"
+      interval_minutes: 30
+      weight: 1.6
+
+    # ===== 总务部（停水停电、后勤）=====
+    - name: 总务部·相关通知
+      campus: 北大本部
+      url: https://zwb.pku.edu.cn/zbtb/xgtz/index.htm
+      item_selector: "ul.item-list li"
+      title_selector: "a"
+      link_selector: "a"
+      interval_minutes: 30
+      weight: 1.6
+    - name: 总务部·后勤动态
+      campus: 北大本部
+      url: https://zwb.pku.edu.cn/zwdt/xwdt/index.htm
+      item_selector: "ul.item-list li"
+      title_selector: "a"
+      link_selector: "a"
+      interval_minutes: 60
+      weight: 1.3
+
+    # ===== 保卫部 / 国际合作部 =====
+    - name: 保卫部·通知公告
+      campus: 北大本部
+      url: https://bwb.pku.edu.cn/tzgg/index.htm
+      item_selector: "div.notice-list > ul > li"
+      title_selector: "div.title"
+      link_selector: "a"
+      date_selector: "div.date"
+      interval_minutes: 60
+      weight: 1.4
+    - name: 国际合作部·公告通知
+      campus: 北大本部
+      url: https://www.oir.pku.edu.cn/xwzx/ggtz.htm
+      item_selector: "li.media"
+      title_selector: "h4 a"
+      link_selector: "a"
+      date_selector: "ul.list-inline li"
+      interval_minutes: 60
+      weight: 1.5
+    - name: 国际合作部·国际组织实习
+      campus: 北大本部
+      url: https://www.oir.pku.edu.cn/hwxx/cgjl/gjzzsx.htm
+      item_selector: "li.media"
+      title_selector: "h4 a"
+      link_selector: "a"
+      date_selector: "ul.list-inline li"
+      default_category: 国际交流
+      interval_minutes: 60
+      weight: 1.5
+
+    # ===== 校医院（另一个列表页，与首页那个互补）=====
+    - name: 校医院·通知公告
+      campus: 北大本部
+      url: https://hospital.pku.edu.cn/tzgg.htm
+      item_selector: "div.ejC_R ul li"
+      title_selector: "a"
+      link_selector: "a"
+      date_selector: "p"
+      interval_minutes: 120
+      weight: 1.4
+
+
 # ============================================================
 
 filter:

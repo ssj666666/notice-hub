@@ -11,7 +11,8 @@ from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .categories import CATEGORY_KEYS, DEFAULT_CATEGORY, DESCS, ICONS
+from .categories import (CAMPUSES, CATEGORY_KEYS, DEFAULT_CATEGORY, DESCS,
+                         ICONS)
 from .config import (ROOT, enabled_sources, load_config, load_custom_sources,
                      llm_ready, save_custom_sources, wechat_ready)
 from .db import Database
@@ -59,6 +60,7 @@ def create_app(cfg: dict) -> FastAPI:
         starred_only: bool = False,
         include_dropped: bool = False,
         include_stale: bool = False,
+        campus: str = "",
         category: str = "",
         sort: str = Query("importance", pattern="^(importance|time)$"),
         q: str = "",
@@ -66,15 +68,37 @@ def create_app(cfg: dict) -> FastAPI:
         return {
             "items": db.list_items(limit, min_importance, unread_only,
                                    include_dropped, starred_only, q, category,
-                                   include_stale, sort)
+                                   include_stale, sort, campus)
         }
+
+    @app.get("/api/campuses")
+    def campuses(min_importance: int = Query(1, ge=1, le=5),
+                 unread_only: bool = False,
+                 include_stale: bool = False):
+        """一级分类（校区）。看板顶部用这个分两大块。"""
+        counts = {row["campus"]: row for row in
+                  db.campus_counts(min_importance, unread_only, include_stale)}
+        out = []
+        for meta in CAMPUSES:
+            row = counts.get(meta["key"])
+            out.append({
+                "key": meta["key"],
+                "icon": meta["icon"],
+                "desc": meta["desc"],
+                "count": int(row["n"]) if row else 0,
+                "unread": int(row["unread"]) if row else 0,
+                "important": int(row["important"]) if row else 0,
+            })
+        return {"campuses": out}
 
     @app.get("/api/categories")
     def categories(min_importance: int = Query(1, ge=1, le=5),
                    unread_only: bool = False,
-                   include_stale: bool = False):
+                   include_stale: bool = False,
+                   campus: str = ""):
         counts = {row["category"]: row for row in
-                  db.category_counts(min_importance, unread_only, include_stale)}
+                  db.category_counts(min_importance, unread_only, include_stale,
+                                     campus)}
         out = []
         for key in CATEGORY_KEYS + [DEFAULT_CATEGORY]:
             row = counts.get(key)

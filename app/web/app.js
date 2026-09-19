@@ -6,12 +6,14 @@ const $ = (sel) => document.querySelector(sel);
 const state = {
   view: 'all',
   q: '',
+  campus: '',
   category: '',
   sort: 'importance',
   sortManual: false,
   includeStale: false,
   items: [],
   categories: [],
+  campuses: [],
   sources: [],
   current: null,
   stats: null,
@@ -116,6 +118,7 @@ async function loadItems() {
     sort: state.sort,
   });
   if (state.q) params.set('q', state.q);
+  if (state.campus) params.set('campus', state.campus);
   if (state.category) params.set('category', state.category);
   try {
     const data = await api('/api/items?' + params.toString());
@@ -144,7 +147,7 @@ function renderToolbar() {
     : '当前自动：全部通知按重要度，具体类目按时间';
 
   const staleBtn = $('#btn-stale');
-  staleBtn.textContent = state.includeStale ? '过期通知：显示' : '过期通知：隐藏';
+  staleBtn.textContent = state.includeStale ? '过期：显示' : '过期：隐藏';
   staleBtn.classList.toggle('on', state.includeStale);
 
   const s = state.stats || {};
@@ -152,6 +155,45 @@ function renderToolbar() {
   if (s.published_today) bits.push(`今日发布 ${s.published_today} 条`);
   if (s.stale) bits.push(`已隐藏过期 ${s.stale} 条`);
   $('#toolbar-hint').textContent = bits.join(' · ');
+}
+
+/* ---------------- 一级分类：校区 ---------------- */
+async function loadCampuses() {
+  const v = VIEWS[state.view] || VIEWS.key;
+  const params = new URLSearchParams({
+    min_importance: String(v.min_importance),
+    unread_only: String(v.unread_only),
+    include_stale: String(state.includeStale),
+  });
+  try {
+    const data = await api('/api/campuses?' + params.toString());
+    state.campuses = (data.campuses || []).filter((c) => c.count > 0);
+  } catch (e) {
+    state.campuses = [];
+  }
+  renderCampuses();
+}
+
+function renderCampuses() {
+  const el = $('#campuses');
+  if (!state.campuses.length) {
+    el.innerHTML = '';
+    return;
+  }
+  const total = state.campuses.reduce((sum, c) => sum + c.count, 0);
+  const all = `<button class="campus ${state.campus === '' ? 'active' : ''}" data-campus="">
+      <span class="ci">📋</span>
+      <span class="cn">全部</span>
+      <span class="cc">${total} 条</span>
+    </button>`;
+  const rest = state.campuses.map((c) => `
+    <button class="campus ${state.campus === c.key ? 'active' : ''}"
+            data-campus="${esc(c.key)}" title="${esc(c.desc)}">
+      <span class="ci">${c.icon}</span>
+      <span class="cn">${esc(c.key)}</span>
+      <span class="cc">${c.count} 条${c.unread ? ` · 未读 ${c.unread}` : ''}</span>
+    </button>`).join('');
+  el.innerHTML = all + rest;
 }
 
 /* ---------------- 分类 ---------------- */
@@ -162,6 +204,7 @@ async function loadCategories() {
     unread_only: String(v.unread_only),
     include_stale: String(state.includeStale),
   });
+  if (state.campus) params.set('campus', state.campus);
   try {
     const data = await api('/api/categories?' + params.toString());
     state.categories = (data.categories || []).filter((c) => c.count > 0);
@@ -266,6 +309,9 @@ function cardHtml(it, showCat) {
   const starTag = it.starred ? '<span class="tag star">★</span>' : '';
   const catTag = showCat && it.category
     ? `<span class="tag cat-tag">${esc(it.category)}</span>` : '';
+  // 在「全部」视图下额外标出校区，避免两个校区的内容混在一起分不清
+  const campTag = state.campus === '' && it.campus
+    ? `<span class="tag">${esc(it.campus)}</span>` : '';
   const staleTag = it.is_stale
     ? '<span class="tag">已过期</span>'
     : (it.is_baseline ? '<span class="tag">首次接入</span>' : '');
@@ -278,7 +324,7 @@ function cardHtml(it, showCat) {
         <h3 class="card-title">${esc(it.title)}</h3>
         ${summary ? `<p class="card-sum">${esc(summary)}</p>` : ''}
         <div class="card-meta">
-          ${impTag}${freshTag}${deadlineTag}${catTag}${starTag}${staleTag}
+          ${impTag}${freshTag}${deadlineTag}${catTag}${campTag}${starTag}${staleTag}
           <span>${esc(it.source)}</span>
           <span>·</span>
           <span>${relTime(it.published_at || it.fetched_at)}</span>
@@ -335,6 +381,7 @@ async function refreshAll() {
   btn.disabled = true;
   try {
     await loadStats();
+    await loadCampuses();
     await loadCategories();
     await loadItems();
   } finally {
@@ -532,6 +579,18 @@ function bind() {
     state.category = '';
     state.sortManual = false;
     applyAutoSort();
+    loadCategories();
+    loadItems();
+  });
+
+  $('#campuses').addEventListener('click', (ev) => {
+    const tab = ev.target.closest('.campus[data-campus]');
+    if (!tab) return;
+    state.campus = tab.dataset.campus;
+    state.category = '';      // 切校区时清掉二级筛选
+    state.sortManual = false;
+    applyAutoSort();
+    renderCampuses();
     loadCategories();
     loadItems();
   });

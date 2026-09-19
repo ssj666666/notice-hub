@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS items (
     published_at  TEXT,
     fetched_at    TEXT    NOT NULL,
     importance    INTEGER NOT NULL DEFAULT 2,
+    campus        TEXT,
     category      TEXT,
     topic         TEXT,
     summary       TEXT,
@@ -41,6 +42,8 @@ CREATE TABLE IF NOT EXISTS items (
 CREATE INDEX IF NOT EXISTS idx_items_fetched   ON items(fetched_at DESC);
 CREATE INDEX IF NOT EXISTS idx_items_importance ON items(importance DESC);
 CREATE INDEX IF NOT EXISTS idx_items_unread    ON items(is_read, dropped);
+-- 注意：涉及后加列的索引要放在 _migrate() 里建，
+-- 否则老库上 CREATE INDEX 会先于 ALTER TABLE 执行而报 "no such column"
 
 CREATE TABLE IF NOT EXISTS snapshots (
     key        TEXT PRIMARY KEY,
@@ -87,11 +90,15 @@ class Database:
             "is_baseline": "INTEGER NOT NULL DEFAULT 0",
             "is_stale": "INTEGER NOT NULL DEFAULT 0",
             "category": "TEXT",
+            "campus": "TEXT",
         }
         existing = {row[1] for row in self._conn.execute("PRAGMA table_info(items)")}
         for column, decl in wanted.items():
             if column not in existing:
                 self._conn.execute(f"ALTER TABLE items ADD COLUMN {column} {decl}")
+        # 建在"后加列"上的索引，必须等列补齐之后再建
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_items_campus ON items(campus, category)")
 
     # ---------- 基础 ----------
     def _exec(self, sql: str, params: Iterable = ()) -> sqlite3.Cursor:
@@ -115,14 +122,15 @@ class Database:
             cur = self._exec(
                 """INSERT INTO items
                    (uid, source, source_type, title, url, content, published_at,
-                    fetched_at, importance, category, analysis, matched, dropped,
-                    is_baseline, is_stale)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    fetched_at, importance, campus, category, analysis, matched,
+                    dropped, is_baseline, is_stale)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     item["uid"], item["source"], item["source_type"], item["title"],
                     item.get("url", ""), item.get("content", "")[:20000],
                     item.get("published_at", ""), now_iso(),
-                    item.get("importance", 2), item.get("category", ""),
+                    item.get("importance", 2), item.get("campus", ""),
+                    item.get("category", ""),
                     item.get("analysis", "prescreen"),
                     json.dumps(item.get("matched", []), ensure_ascii=False),
                     1 if item.get("dropped") else 0,
@@ -162,7 +170,7 @@ class Database:
                    unread_only: bool = False, include_dropped: bool = False,
                    starred_only: bool = False, q: str = "",
                    category: str = "", include_stale: bool = False,
-                   sort: str = "importance") -> list[dict]:
+                   sort: str = "importance", campus: str = "") -> list[dict]:
         where, params = [], []
         where.append("importance >= ?")
         params.append(int(min_importance))
@@ -174,6 +182,9 @@ class Database:
             where.append("is_read = 0")
         if starred_only:
             where.append("starred = 1")
+        if campus:
+            where.append("COALESCE(NULLIF(campus,''), '通用') = ?")
+            params.append(campus)
         if category:
             where.append("category = ?")
             params.append(category)
@@ -195,8 +206,33 @@ class Database:
 
     def category_counts(self, min_importance: int = 1,
                         unread_only: bool = False,
-                        include_stale: bool = True) -> list[dict]:
-        """按分类统计，供看板的分组/筛选用。"""
+                        include_stale: bool = False,
+                        campus: str = "") -> list[dict]:
+        """按二级类目统计，可限定校区。"""
+        where = ["dropped = 0", "importance >= ?"]
+        params: list = [int(min_importance)]
+        if not include_stale:
+            where.append("is_stale = 0")
+        if unread_only:
+            where.append("is_read = 0")
+        if campus:
+            where.append("COALESCE(NULLIF(campus,''), '通用') = ?")
+            params.append(campus)
+        rows = self._query(
+            f"""SELECT COALESCE(NULLIF(category,''), '其他') AS category,
+                       COUNT(*) AS n,
+                       SUM(CASE WHEN is_read=0 THEN 1 ELSE 0 END) AS unread,
+                       SUM(CASE WHEN importance>=4 THEN 1 ELSE 0 END) AS important
+                FROM items WHERE {' AND '.join(where)}
+                GROUP BY 1 ORDER BY n DESC""",
+            params,
+        )
+        return [dict(r) for r in rows]
+
+    def campus_counts(self, min_importance: int = 1,
+                      unread_only: bool = False,
+                      include_stale: bool = False) -> list[dict]:
+        """按一级类目（校区）统计。"""
         where = ["dropped = 0", "importance >= ?"]
         params: list = [int(min_importance)]
         if not include_stale:
@@ -204,7 +240,7 @@ class Database:
         if unread_only:
             where.append("is_read = 0")
         rows = self._query(
-            f"""SELECT COALESCE(NULLIF(category,''), '其他') AS category,
+            f"""SELECT COALESCE(NULLIF(campus,''), '通用') AS campus,
                        COUNT(*) AS n,
                        SUM(CASE WHEN is_read=0 THEN 1 ELSE 0 END) AS unread,
                        SUM(CASE WHEN importance>=4 THEN 1 ELSE 0 END) AS important
@@ -219,14 +255,23 @@ class Database:
         return dict(rows[0]) if rows else None
 
     def update_verdict(self, item_id: int, importance: int, category: str,
-                       analysis: str, dropped: bool, is_stale: bool) -> None:
+                       analysis: str, dropped: bool, is_stale: bool,
+                       campus: str = "") -> None:
         """重算用：按当前配置覆写判定结果。"""
-        self._exec(
-            "UPDATE items SET importance=?, category=?, analysis=?, dropped=?, is_stale=? "
-            "WHERE id=?",
-            (int(importance), category, analysis, 1 if dropped else 0,
-             1 if is_stale else 0, int(item_id)),
-        )
+        if campus:
+            self._exec(
+                "UPDATE items SET importance=?, campus=?, category=?, analysis=?, "
+                "dropped=?, is_stale=? WHERE id=?",
+                (int(importance), campus, category, analysis,
+                 1 if dropped else 0, 1 if is_stale else 0, int(item_id)),
+            )
+        else:
+            self._exec(
+                "UPDATE items SET importance=?, category=?, analysis=?, "
+                "dropped=?, is_stale=? WHERE id=?",
+                (int(importance), category, analysis,
+                 1 if dropped else 0, 1 if is_stale else 0, int(item_id)),
+            )
 
     def all_items(self, limit: int = 200000) -> list[dict]:
         return [dict(r) for r in self._query(

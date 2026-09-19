@@ -14,7 +14,8 @@ EXAMPLE_PATH = ROOT / "config.example.yaml"
 CUSTOM_PATH = ROOT / "data" / "custom_sources.yaml"
 
 DEFAULTS: dict = {
-    "server": {"host": "0.0.0.0", "port": 8787, "open_browser": True},
+    "server": {"host": "0.0.0.0", "port": 8787, "open_browser": True,
+               "lan_access": True},
     "poll_interval_minutes": 10,
     "log_level": "INFO",
     "sources": {"rss": [], "imap": [], "web": [], "api": []},
